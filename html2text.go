@@ -2,49 +2,72 @@ package html2text
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"golang.org/x/net/html"
 	"strings"
 )
 
-func Textify(body string) string {
+var breakers = map[string]bool{
+	"br":  true,
+	"div": true,
+	"tr":  true,
+	"li":  true,
+}
+
+func Textify(body string) (string, error) {
 	r := strings.NewReader(body)
 	doc, err := html.Parse(r)
 	if err != nil {
-		// ...
-	}
-	
-	var breakers = make(map[string]bool)
-	breakers["br"] = true
-	breakers["div"] = true
-	breakers["tr"] = true
-	breakers["li"] = true
-	
-	var f func(*html.Node, *bytes.Buffer)
-	f = func(n *html.Node, b *bytes.Buffer) {
-		processChildren := true
-		
-		if n.Type == html.ElementNode && n.Data == "head" {
-			return
-		} else if n.Type == html.ElementNode && n.Data == "a" && n.FirstChild != nil {
-			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				f(c, b)
-			}
-			b.WriteString(fmt.Sprintf(" (link: %s)", n.Attr[0].Val))
-			processChildren = false
-		} else if n.Type == html.TextNode {
-			b.WriteString(n.Data)
-		} 
-		if processChildren {
-			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				f(c, b)
-			}
-		}
-		if n.Type == html.ElementNode && breakers[n.Data] {
-			b.WriteString("\n")
-		}
+		return "", errors.New("Unable to parse the html")
 	}
 	var buffer bytes.Buffer
-	f(doc, &buffer)
-	return strings.TrimSpace(strings.Replace(buffer.String(), "\u00a0", " ", -1))
+	process(doc, &buffer)
+
+	return strings.TrimSpace(buffer.String()), nil
+}
+
+func process(n *html.Node, b *bytes.Buffer) {
+	processChildren := true
+
+	if n.Type == html.ElementNode && n.Data == "head" {
+		return
+	} else if n.Type == html.ElementNode && n.Data == "a" && n.FirstChild != nil {
+		processChildren = anchor(n, b)
+	} else if n.Type == html.TextNode {
+		b.WriteString(cleanup(n.Data))
+	}
+	if processChildren {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			process(c, b)
+		}
+	}
+	if b.Len() > 0 {
+		last := b.Bytes()[b.Len()-1]
+		if last != '\n' && n.Type == html.ElementNode && breakers[n.Data] {
+			b.WriteString("\n")
+		} else if last != ' ' && last != '\n' {
+			b.WriteString(" ")
+		}
+	}
+}
+
+func cleanup(text string) string {
+	return strings.TrimSpace(strings.Replace(text, "\u00a0", " ", -1))
+}
+
+func anchor(n *html.Node, b *bytes.Buffer) bool {
+	start := b.Len()
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		process(c, b)
+	}
+	// check to see if the link text has been written out already
+	bytes := b.Bytes()
+	end := b.Len()
+	link := n.Attr[0].Val
+	recentlyWrittenBytes := bytes[start:end]
+	if !strings.Contains(string(recentlyWrittenBytes), link) {
+		b.WriteString(fmt.Sprintf("(link: %s)", link))
+	}
+	return false
 }
