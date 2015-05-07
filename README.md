@@ -1,6 +1,8 @@
 # html2text
 An html to text converter written in Go.  
 
+[![Build Status](https://travis-ci.org/sgoertzen/html2text.svg)](https://travis-ci.org/sgoertzen/html2text)
+
 ## Install
 go get github.com/sgoertzen/html2text
 
